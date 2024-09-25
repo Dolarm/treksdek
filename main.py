@@ -3,12 +3,18 @@ import json
 from telegram import Update
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
+# Создание сессии для управления заголовками
+session = requests.Session()
+session.headers.update({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+})
+
 # Функция для запроса статуса по трек-номеру
 def get_status_from_sdek_api(track_number):
     url = f'https://www.cdek.ru/api-site/track/info/?track={track_number}&locale=ru'
     
     try:
-        response = requests.get(url)
+        response = session.get(url)
         response.raise_for_status()  # Проверка на ошибки запроса
 
         if response.headers.get('Content-Type') == 'application/json':
