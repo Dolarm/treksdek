@@ -80,7 +80,7 @@ def handle_track_number(update: Update, context: CallbackContext) -> None:
 # Основная функция для запуска бота
 def main():
     # Вставьте сюда свой токен
-    updater = Updater("YOUR_BOT_TOKEN", use_context=True)
+    updater = Updater("7908039654:AAHbcKWcSWPp_Z82rbEoK-aDkIPD-sJcV94", use_context=True)
     
     dispatcher = updater.dispatcher
 
