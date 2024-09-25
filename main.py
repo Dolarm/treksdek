@@ -1,97 +1,78 @@
-import logging
-import requests
+import re
 import json
+import requests
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from telegram.ext import Updater, CommandHandler, CallbackContext
 
-# Настройка логирования
-logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Функция для удаления комментариев из JSON
+def remove_comments_from_json(file_content):
+    """Функция для удаления комментариев из JSON-строки."""
+    # Удаляем строки, которые начинаются с // (комментарии)
+    cleaned_content = re.sub(r'//.*', '', file_content)
+    return cleaned_content
 
-# Создание сессии для управления заголовками
-session = requests.Session()
-session.headers.update({
-    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
-})
-
-# Функция для получения статуса по трек-номеру через неофициальный API СДЭК
+# Функция для получения статуса из API СДЭК
 def get_status_from_sdek_api(track_number):
     url = f'https://www.cdek.ru/api-site/track/info/?track={track_number}&locale=ru'
     
     try:
-        response = session.get(url)
-        response.raise_for_status()  # Проверка на ошибки запроса
+        # Отправляем запрос к API СДЭК
+        response = requests.get(url)
+        
+        # Проверяем, что запрос был успешным
+        if response.status_code != 200:
+            return f"Ошибка запроса: {response.status_code}"
 
-        if response.headers.get('Content-Type') == 'application/json':
-            # Пробуем сразу разобрать JSON
-            data = response.json()
-        else:
-            # Сохраняем ответ как info.json
-            with open("info.json", "wb") as f:
-                f.write(response.content)
-
-            # Читаем данные из файла
-            with open("info.json", "r", encoding="utf-8") as f:
-                file_content = f.read()
-
-            if not file_content.strip():
-                return "Ошибка: файл пуст или содержит некорректные данные."
-
-            try:
-                data = json.loads(file_content)
-            except json.JSONDecodeError:
-                return "Ошибка: не удалось разобрать JSON из файла."
-
-        # Проверяем статус
-        status = data.get('status', {})
-        if status:
-            return {
-                'code': status.get('code', 'Неизвестно'),
-                'name': status.get('name', 'Неизвестно'),
-                'date': status.get('date', 'Неизвестно')
-            }
-        else:
-            return "Статус не найден."
-
-    except requests.exceptions.RequestException as e:
+        # Получаем сырой JSON
+        raw_content = response.text
+        
+        # Очищаем JSON от комментариев
+        clean_json = remove_comments_from_json(raw_content)
+        
+        # Разбираем JSON
+        data = json.loads(clean_json)
+        
+        # Возвращаем статус
+        return data.get("data", {}).get("status", {}).get("name", "Статус не найден")
+    
+    except json.JSONDecodeError as e:
+        return f"Ошибка разбора JSON: {str(e)}"
+    except Exception as e:
         return f"Ошибка запроса: {str(e)}"
 
-# Функция, вызываемая при команде /start
-def start(update: Update, context: CallbackContext) -> None:
-    update.message.reply_text('Привет! Введите трек-номер, чтобы узнать статус отправления.')
+# Функция для обработки команды /start
+def start(update: Update, context: CallbackContext):
+    update.message.reply_text('Введите номер отслеживания СДЭК для проверки статуса.')
 
-# Функция для обработки трек-номера
-def handle_track_number(update: Update, context: CallbackContext) -> None:
-    track_number = update.message.text.strip()
-    update.message.reply_text(f'Получаю статус для трек-номера: {track_number}...')
-    
-    # Получение статуса через API
+# Функция для обработки команды с номером отслеживания
+def handle_track_number(update: Update, context: CallbackContext):
+    # Получаем номер отслеживания
+    track_number = update.message.text
+
+    # Проверяем статус заказа через API СДЭК
     status = get_status_from_sdek_api(track_number)
+    
+    # Отправляем статус пользователю
+    update.message.reply_text(f"Статус заказа: {status}")
 
-    if isinstance(status, dict):
-        # Форматируем ответ, если статус получен
-        response_message = f"Статус: {status['name']}\nКод: {status['code']}\nДата: {status['date']}"
-    else:
-        # Если возникла ошибка
-        response_message = status
-
-    update.message.reply_text(response_message)
-
-# Основная функция для запуска бота
+# Главная функция для запуска бота
 def main():
-    # Вставьте сюда свой токен
+    # Создаём апдейтера и передаём в него токен вашего бота
     updater = Updater("7908039654:AAHbcKWcSWPp_Z82rbEoK-aDkIPD-sJcV94", use_context=True)
     
-    dispatcher = updater.dispatcher
+    # Получаем диспетчер для регистрации обработчиков
+    dp = updater.dispatcher
+    
+    # Регистрация обработчиков команд
+    dp.add_handler(CommandHandler("start", start))
+    
+    # Обработчик для текста с номером отслеживания
+    dp.add_handler(CommandHandler("track", handle_track_number))
 
-    # Команда /start
-    dispatcher.add_handler(CommandHandler("start", start))
-
-    # Обработка текстовых сообщений (трек-номеров)
-    dispatcher.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_track_number))
-
-    # Запуск бота
+    # Запускаем бота
     updater.start_polling()
+
+    # Ожидаем прерывания
     updater.idle()
 
 if __name__ == '__main__':
