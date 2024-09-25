@@ -1,6 +1,7 @@
 import re
 import json
 import requests
+import os
 from telegram import Update, InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
@@ -20,7 +21,7 @@ def get_status_from_sdek_api(track_number):
         
         # Проверяем, что запрос был успешным
         if response.status_code != 200:
-            return f"Ошибка запроса: {response.status_code}"
+            raise Exception(f"Ошибка запроса: {response.status_code}")
 
         # Получаем сырой JSON
         raw_content = response.text
@@ -38,19 +39,24 @@ def get_status_from_sdek_api(track_number):
         print(f"Разобранный JSON:\n{data}")
 
         # Сохраняем исходный и обработанный JSON в файлы
-        with open("original.json", "w", encoding="utf-8") as original_file:
+        original_file_path = "original.json"
+        processed_file_path = "processed.json"
+        
+        with open(original_file_path, "w", encoding="utf-8") as original_file:
             original_file.write(raw_content)
 
-        with open("processed.json", "w", encoding="utf-8") as processed_file:
+        with open(processed_file_path, "w", encoding="utf-8") as processed_file:
             processed_file.write(json.dumps(data, ensure_ascii=False, indent=4))
 
-        # Возвращаем статус
-        return data.get("data", {}).get("status", {}).get("name", "Статус не найден")
+        # Возвращаем путь к файлам и статус
+        return data.get("data", {}).get("status", {}).get("name", "Статус не найден"), original_file_path, processed_file_path
     
     except json.JSONDecodeError as e:
-        return f"Ошибка разбора JSON: {str(e)}"
+        # Обрабатываем ошибки при разборе JSON
+        return f"Ошибка разбора JSON: {str(e)}", "original.json", None
     except Exception as e:
-        return f"Ошибка запроса: {str(e)}"
+        # Обрабатываем общие ошибки запроса
+        return f"Ошибка запроса: {str(e)}", "original.json", None
 
 # Функция для обработки команды /start
 def start(update: Update, context: CallbackContext):
@@ -65,7 +71,7 @@ def handle_track_number(update: Update, context: CallbackContext):
     print(f"Трек-номер: {track_number}")
 
     # Проверяем статус заказа через API СДЭК
-    status = get_status_from_sdek_api(track_number)
+    status, original_file_path, processed_file_path = get_status_from_sdek_api(track_number)
     
     # Логируем полученный статус для отладки
     print(f"Статус заказа: {status}")
@@ -73,11 +79,15 @@ def handle_track_number(update: Update, context: CallbackContext):
     # Отправляем статус пользователю
     update.message.reply_text(f"Статус заказа: {status}")
 
-    # Отправляем пользователю исходный и обработанный файлы
-    original_file = InputFile("original.json")
-    processed_file = InputFile("processed.json")
-    update.message.reply_document(original_file, caption="Исходный JSON")
-    update.message.reply_document(processed_file, caption="Обработанный JSON")
+    # Проверяем, созданы ли файлы, и отправляем их пользователю
+    if original_file_path and os.path.exists(original_file_path):
+        with open(original_file_path, 'rb') as original_file:
+            update.message.reply_document(document=original_file, filename="original.json", caption="Исходный JSON")
+    
+    # Отправляем обработанный файл только если он был создан
+    if processed_file_path and os.path.exists(processed_file_path):
+        with open(processed_file_path, 'rb') as processed_file:
+            update.message.reply_document(document=processed_file, filename="processed.json", caption="Обработанный JSON")
 
 # Главная функция для запуска бота
 def main():
