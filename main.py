@@ -2,13 +2,12 @@ import re
 import json
 import requests
 from telegram import Update
-from telegram.ext import Updater, CommandHandler, CallbackContext
+from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Функция для удаления комментариев из JSON
 def remove_comments_from_json(file_content):
     """Функция для удаления комментариев из JSON-строки."""
-    # Удаляем строки, которые начинаются с // (комментарии)
-    cleaned_content = re.sub(r'//.*', '', file_content)
+    cleaned_content = re.sub(r'//.*', '', file_content)  # Удаляем строки, которые начинаются с // (комментарии)
     return cleaned_content
 
 # Функция для получения статуса из API СДЭК
@@ -29,9 +28,15 @@ def get_status_from_sdek_api(track_number):
         # Очищаем JSON от комментариев
         clean_json = remove_comments_from_json(raw_content)
         
+        # Логирование для проверки полученного JSON
+        print(f"Чистый JSON:\n{clean_json}")
+
         # Разбираем JSON
         data = json.loads(clean_json)
         
+        # Логирование результата разбора JSON
+        print(f"Разобранный JSON:\n{data}")
+
         # Возвращаем статус
         return data.get("data", {}).get("status", {}).get("name", "Статус не найден")
     
@@ -44,14 +49,20 @@ def get_status_from_sdek_api(track_number):
 def start(update: Update, context: CallbackContext):
     update.message.reply_text('Введите номер отслеживания СДЭК для проверки статуса.')
 
-# Функция для обработки команды с номером отслеживания
+# Функция для обработки введённого текста (номер отслеживания)
 def handle_track_number(update: Update, context: CallbackContext):
-    # Получаем номер отслеживания
-    track_number = update.message.text
+    # Получаем текст сообщения (это и будет трек-номер)
+    track_number = update.message.text.strip()
+
+    # Логируем трек-номер для отладки
+    print(f"Трек-номер: {track_number}")
 
     # Проверяем статус заказа через API СДЭК
     status = get_status_from_sdek_api(track_number)
     
+    # Логируем полученный статус для отладки
+    print(f"Статус заказа: {status}")
+
     # Отправляем статус пользователю
     update.message.reply_text(f"Статус заказа: {status}")
 
@@ -63,11 +74,11 @@ def main():
     # Получаем диспетчер для регистрации обработчиков
     dp = updater.dispatcher
     
-    # Регистрация обработчиков команд
+    # Регистрация обработчика команды /start
     dp.add_handler(CommandHandler("start", start))
     
-    # Обработчик для текста с номером отслеживания
-    dp.add_handler(CommandHandler("track", handle_track_number))
+    # Обработчик всех текстовых сообщений (для трек-номеров)
+    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_track_number))
 
     # Запускаем бота
     updater.start_polling()
