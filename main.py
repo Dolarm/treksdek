@@ -1,113 +1,47 @@
-import re
-import json
 import requests
-import os
-from telegram import Update, InputFile
-from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
+from aiogram import Bot, Dispatcher, types
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
+from aiogram.utils import executor
 
-# Функция для удаления комментариев из JSON
-def remove_comments_from_json(file_content):
-    """Функция для удаления комментариев из JSON-строки."""
-    cleaned_content = re.sub(r'//.*', '', file_content)  # Удаляем строки, которые начинаются с // (комментарии)
-    return cleaned_content
+API_TOKEN = '7908039654:AAHbcKWcSWPp_Z82rbEoK-aDkIPD-sJcV94'
+bot = Bot(token=API_TOKEN)
+storage = MemoryStorage()
+dp = Dispatcher(bot, storage=storage)
 
-# Функция для получения статуса из API СДЭК и сохранения файлов
-def get_status_from_sdek_api(track_number):
-    url = f'https://www.cdek.ru/api-site/track/info/?track={track_number}&locale=ru'
+# Функция для получения информации о треке
+def get_tracking_info(track_number):
+    url = f'https://www.cdek.ru/api-site/track/info/?track={track_number}'
     
-    try:
-        # Отправляем запрос к API СДЭК
-        response = requests.get(url)
-        
-        # Проверяем, что запрос был успешным
-        if response.status_code != 200:
-            raise Exception(f"Ошибка запроса: {response.status_code}")
-
-        # Получаем сырой JSON
-        raw_content = response.text
-        
-        # Очищаем JSON от комментариев
-        clean_json = remove_comments_from_json(raw_content)
-        
-        # Логирование для проверки полученного JSON
-        print(f"Чистый JSON:\n{clean_json}")
-
-        # Разбираем JSON
-        data = json.loads(clean_json)
-        
-        # Логирование результата разбора JSON
-        print(f"Разобранный JSON:\n{data}")
-
-        # Сохраняем исходный и обработанный JSON в файлы
-        original_file_path = "original.json"
-        processed_file_path = "processed.json"
-        
-        with open(original_file_path, "w", encoding="utf-8") as original_file:
-            original_file.write(raw_content)
-
-        with open(processed_file_path, "w", encoding="utf-8") as processed_file:
-            processed_file.write(json.dumps(data, ensure_ascii=False, indent=4))
-
-        # Возвращаем путь к файлам и статус
-        return data.get("data", {}).get("status", {}).get("name", "Статус не найден"), original_file_path, processed_file_path
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
+    }
     
-    except json.JSONDecodeError as e:
-        # Обрабатываем ошибки при разборе JSON
-        return f"Ошибка разбора JSON: {str(e)}", "original.json", None
-    except Exception as e:
-        # Обрабатываем общие ошибки запроса
-        return f"Ошибка запроса: {str(e)}", "original.json", None
-
-# Функция для обработки команды /start
-def start(update: Update, context: CallbackContext):
-    update.message.reply_text('Введите номер отслеживания СДЭК для проверки статуса.')
-
-# Функция для обработки введённого текста (номер отслеживания)
-def handle_track_number(update: Update, context: CallbackContext):
-    # Получаем текст сообщения (это и будет трек-номер)
-    track_number = update.message.text.strip()
-
-    # Логируем трек-номер для отладки
-    print(f"Трек-номер: {track_number}")
-
-    # Проверяем статус заказа через API СДЭК
-    status, original_file_path, processed_file_path = get_status_from_sdek_api(track_number)
+    response = requests.get(url, headers=headers)
     
-    # Логируем полученный статус для отладки
-    print(f"Статус заказа: {status}")
+    if response.status_code == 200:
+        data = response.json()
+        if data.get('success'):
+            return data['data']['status']
+        else:
+            return {'error': 'Ошибка при получении данных'}
+    else:
+        return {'error': f'HTTP ошибка: {response.status_code}'}
 
-    # Отправляем статус пользователю
-    update.message.reply_text(f"Статус заказа: {status}")
+# Обработчик команды /start
+@dp.message_handler(commands=['start'])
+async def start_command(message: types.Message):
+    await message.answer("Введите номер трека:")
 
-    # Проверяем, созданы ли файлы, и отправляем их пользователю
-    if original_file_path and os.path.exists(original_file_path):
-        with open(original_file_path, 'rb') as original_file:
-            update.message.reply_document(document=original_file, filename="original.json", caption="Исходный JSON")
+# Обработчик текстовых сообщений
+@dp.message_handler()
+async def track_number_handler(message: types.Message):
+    track_number = message.text
+    status = get_tracking_info(track_number)
     
-    # Отправляем обработанный файл только если он был создан
-    if processed_file_path and os.path.exists(processed_file_path):
-        with open(processed_file_path, 'rb') as processed_file:
-            update.message.reply_document(document=processed_file, filename="processed.json", caption="Обработанный JSON")
-
-# Главная функция для запуска бота
-def main():
-    # Создаём апдейтера и передаём в него токен вашего бота
-    updater = Updater("7908039654:AAHbcKWcSWPp_Z82rbEoK-aDkIPD-sJcV94", use_context=True)
-    
-    # Получаем диспетчер для регистрации обработчиков
-    dp = updater.dispatcher
-    
-    # Регистрация обработчика команды /start
-    dp.add_handler(CommandHandler("start", start))
-    
-    # Обработчик всех текстовых сообщений (для трек-номеров)
-    dp.add_handler(MessageHandler(Filters.text & ~Filters.command, handle_track_number))
-
-    # Запускаем бота
-    updater.start_polling()
-
-    # Ожидаем прерывания
-    updater.idle()
+    if 'error' in status:
+        await message.answer(status['error'])
+    else:
+        await message.answer(f"Статус трека: {status['name']} (Код: {status['code']})")
 
 if __name__ == '__main__':
-    main()
+    executor.start_polling(dp, skip_updates=True)
