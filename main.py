@@ -1,7 +1,7 @@
 import re
 import json
 import requests
-from telegram import Update
+from telegram import Update, InputFile
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters, CallbackContext
 
 # Функция для удаления комментариев из JSON
@@ -10,7 +10,7 @@ def remove_comments_from_json(file_content):
     cleaned_content = re.sub(r'//.*', '', file_content)  # Удаляем строки, которые начинаются с // (комментарии)
     return cleaned_content
 
-# Функция для получения статуса из API СДЭК
+# Функция для получения статуса из API СДЭК и сохранения файлов
 def get_status_from_sdek_api(track_number):
     url = f'https://www.cdek.ru/api-site/track/info/?track={track_number}&locale=ru'
     
@@ -36,6 +36,13 @@ def get_status_from_sdek_api(track_number):
         
         # Логирование результата разбора JSON
         print(f"Разобранный JSON:\n{data}")
+
+        # Сохраняем исходный и обработанный JSON в файлы
+        with open("original.json", "w", encoding="utf-8") as original_file:
+            original_file.write(raw_content)
+
+        with open("processed.json", "w", encoding="utf-8") as processed_file:
+            processed_file.write(json.dumps(data, ensure_ascii=False, indent=4))
 
         # Возвращаем статус
         return data.get("data", {}).get("status", {}).get("name", "Статус не найден")
@@ -65,6 +72,12 @@ def handle_track_number(update: Update, context: CallbackContext):
 
     # Отправляем статус пользователю
     update.message.reply_text(f"Статус заказа: {status}")
+
+    # Отправляем пользователю исходный и обработанный файлы
+    original_file = InputFile("original.json")
+    processed_file = InputFile("processed.json")
+    update.message.reply_document(original_file, caption="Исходный JSON")
+    update.message.reply_document(processed_file, caption="Обработанный JSON")
 
 # Главная функция для запуска бота
 def main():
